@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// Import this in your project:
-// import 'models/task_item.dart';
+// Import these in your project:
+import 'models/task_item.dart';
+import 'database_helper.dart';
 
 // TaskItem model class (normally in separate file)
 class TaskItem {
@@ -26,7 +27,7 @@ class TaskItem {
       'title': title,
       'priority': priority,
       'description': description,
-      'isCompleted': isCompleted,
+      'isCompleted': isCompleted ? 1 : 0,
     };
   }
 
@@ -36,7 +37,7 @@ class TaskItem {
       title: json['title'] as String,
       priority: json['priority'] as String,
       description: json['description'] as String,
-      isCompleted: json['isCompleted'] as bool? ?? false,
+      isCompleted: json['isCompleted'] == 1,
     );
   }
 
@@ -77,7 +78,6 @@ class _MyAppState extends State<MyApp> {
     _loadThemePreference();
   }
 
-  // Load theme preference from SharedPreferences
   Future<void> _loadThemePreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -87,7 +87,6 @@ class _MyAppState extends State<MyApp> {
       });
     } catch (e) {
       print('Error loading theme preference: $e');
-      // Fallback to default theme if there's an error
       setState(() {
         _isDarkMode = false;
         _isLoading = false;
@@ -95,15 +94,12 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  // Save theme preference to SharedPreferences
   Future<void> _saveThemePreference(bool value) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isDarkMode', value);
     } catch (e) {
       print('Error saving theme preference: $e');
-      // Show error to user if needed
-      // You can add a SnackBar here to inform the user
     }
   }
 
@@ -150,7 +146,7 @@ class _MyAppState extends State<MyApp> {
   }
 }
 
-class TasksNotesScreen extends StatelessWidget {
+class TasksNotesScreen extends StatefulWidget {
   final bool isDarkMode;
   final Function(bool) onThemeToggle;
 
@@ -159,30 +155,155 @@ class TasksNotesScreen extends StatelessWidget {
     required this.onThemeToggle,
   });
 
-  // Hardcoded sample tasks using TaskItem model
-  final List<TaskItem> tasks = [
-    TaskItem(
-      id: '1',
-      title: 'Complete Flutter project',
-      priority: 'High',
-      description: 'Finish building the tasks and notes app',
-      isCompleted: false,
-    ),
-    TaskItem(
-      id: '2',
-      title: 'Buy groceries',
-      priority: 'Medium',
-      description: 'Milk, eggs, bread, and vegetables',
-      isCompleted: false,
-    ),
-    TaskItem(
-      id: '3',
-      title: 'Schedule dentist appointment',
-      priority: 'Low',
-      description: 'Call the clinic before 5 PM',
-      isCompleted: true,
-    ),
-  ];
+  @override
+  State<TasksNotesScreen> createState() => _TasksNotesScreenState();
+}
+
+class _TasksNotesScreenState extends State<TasksNotesScreen> {
+  List<TaskItem> tasks = [];
+
+  void _addNewTask(TaskItem newTask) {
+    setState(() {
+      tasks.insert(0, newTask);
+    });
+  }
+
+  void _updateTask(TaskItem updatedTask) {
+    setState(() {
+      final index = tasks.indexWhere((task) => task.id == updatedTask.id);
+      if (index != -1) {
+        tasks[index] = updatedTask;
+      }
+    });
+  }
+
+  void _deleteTask(String taskId) {
+    setState(() {
+      tasks.removeWhere((task) => task.id == taskId);
+    });
+  }
+
+  void _showTaskOptionsDialog(TaskItem task) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Task Options'),
+          content: Text('What would you like to do with "${task.title}"?'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          actions: [
+            TextButton.icon(
+              icon: Icon(Icons.edit, color: Colors.blue),
+              label: Text('Edit'),
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                _navigateToEditTaskForm(task);
+              },
+            ),
+            TextButton.icon(
+              icon: Icon(Icons.delete, color: Colors.red),
+              label: Text('Delete'),
+              onPressed: () {
+                Navigator.pop(context); // Close dialog
+                _confirmDeleteTask(task);
+              },
+            ),
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () {
+                Navigator.pop(context);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteTask(TaskItem task) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Delete Task'),
+          content: Text('Are you sure you want to delete "${task.title}"?'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          actions: [
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () {
+                Navigator.pop(context);
+              },
+            ),
+            TextButton(
+              child: Text(
+                'Delete',
+                style: TextStyle(color: Colors.red),
+              ),
+              onPressed: () {
+                Navigator.pop(context);
+                _deleteTask(task.id);
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Task "${task.title}" deleted'),
+                    backgroundColor: Colors.red,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _navigateToAddTaskForm() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddTaskFormScreen(),
+      ),
+    );
+
+    if (result != null && result is TaskItem) {
+      _addNewTask(result);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Task "${result.title}" added successfully!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _navigateToEditTaskForm(TaskItem task) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AddTaskFormScreen(taskToEdit: task),
+      ),
+    );
+
+    if (result != null && result is TaskItem) {
+      _updateTask(result);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Task "${result.title}" updated successfully!'),
+          backgroundColor: Colors.blue,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -252,8 +373,8 @@ class TasksNotesScreen extends StatelessWidget {
                 isDark ? 'Dark mode enabled' : 'Light mode enabled',
                 style: TextStyle(fontSize: 14),
               ),
-              value: isDarkMode,
-              onChanged: onThemeToggle,
+              value: widget.isDarkMode,
+              onChanged: widget.onThemeToggle,
               secondary: Icon(
                 isDark ? Icons.dark_mode : Icons.light_mode,
                 color: theme.colorScheme.primary,
@@ -261,87 +382,128 @@ class TasksNotesScreen extends StatelessWidget {
             ),
           ),
 
+          // Tasks count
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '${tasks.length} Tasks',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          SizedBox(height: 8),
+
           // ListView section
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.symmetric(horizontal: 16),
-              itemCount: tasks.length,
-              itemBuilder: (context, index) {
-                final task = tasks[index];
-                return Card(
-                  elevation: 2,
-                  margin: EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ListTile(
-                    contentPadding: EdgeInsets.all(16),
-                    leading: CircleAvatar(
-                      backgroundColor: task.isCompleted
-                          ? Colors.green
-                          : _getPriorityColor(task.priority),
-                      child: Icon(
-                        task.isCompleted ? Icons.check : Icons.note,
-                        color: Colors.white,
-                      ),
+            child: tasks.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.task_alt,
+                          size: 80,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'No tasks yet',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Tap + to add a new task',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
                     ),
-                    title: Text(
-                      task.title,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        decoration: task.isCompleted
-                            ? TextDecoration.lineThrough
-                            : TextDecoration.none,
-                      ),
-                    ),
-                    subtitle: Padding(
-                      padding: EdgeInsets.only(top: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            task.description,
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: isDark ? Colors.grey[400] : Colors.grey[600],
+                  )
+                : ListView.builder(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: tasks.length,
+                    itemBuilder: (context, index) {
+                      final task = tasks[index];
+                      return Card(
+                        elevation: 2,
+                        margin: EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: ListTile(
+                          contentPadding: EdgeInsets.all(16),
+                          onTap: () => _showTaskOptionsDialog(task),
+                          leading: CircleAvatar(
+                            backgroundColor: task.isCompleted
+                                ? Colors.green
+                                : _getPriorityColor(task.priority),
+                            child: Icon(
+                              task.isCompleted ? Icons.check : Icons.note,
+                              color: Colors.white,
                             ),
                           ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Priority: ${task.priority}',
+                          title: Text(
+                            task.title,
                             style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: _getPriorityColor(task.priority),
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              decoration: task.isCompleted
+                                  ? TextDecoration.lineThrough
+                                  : TextDecoration.none,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    trailing: Icon(
-                      Icons.arrow_forward_ios,
-                      size: 16,
-                      color: isDark ? Colors.grey[600] : Colors.grey[400],
-                    ),
+                          subtitle: Padding(
+                            padding: EdgeInsets.only(top: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  task.description,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color:
+                                        isDark ? Colors.grey[400] : Colors.grey[600],
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Priority: ${task.priority}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                    color: _getPriorityColor(task.priority),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          trailing: Icon(
+                            Icons.arrow_forward_ios,
+                            size: 16,
+                            color: isDark ? Colors.grey[600] : Colors.grey[400],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Add new task functionality
-        },
+        onPressed: _navigateToAddTaskForm,
         backgroundColor: theme.colorScheme.primary,
         child: Icon(Icons.add, color: Colors.white),
       ),
     );
   }
 
-  // Helper method to get color based on priority
   Color _getPriorityColor(String priority) {
     switch (priority.toLowerCase()) {
       case 'high':
@@ -356,19 +518,303 @@ class TasksNotesScreen extends StatelessWidget {
   }
 }
 
-/*
- * SETUP INSTRUCTIONS:
- * 
- * 1. Add shared_preferences to pubspec.yaml:
- *    dependencies:
- *      flutter:
- *        sdk: flutter
- *      shared_preferences: ^2.2.2
- * 
- * 2. Run: flutter pub get
- * 
- * 3. The app will now:
- *    - Save theme preference when toggled
- *    - Load saved theme on app restart
- *    - Apply theme automatically
- */
+// Add Task Form Screen
+class AddTaskFormScreen extends StatefulWidget {
+  final TaskItem? taskToEdit;
+
+  const AddTaskFormScreen({Key? key, this.taskToEdit}) : super(key: key);
+
+  @override
+  State<AddTaskFormScreen> createState() => _AddTaskFormScreenState();
+}
+
+class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _titleController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  String _selectedPriority = 'Medium';
+  bool _isCompleted = false;
+  bool _isEditMode = false;
+
+  final List<String> _priorityOptions = ['High', 'Medium', 'Low'];
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Check if we're editing an existing task
+    if (widget.taskToEdit != null) {
+      _isEditMode = true;
+      _titleController.text = widget.taskToEdit!.title;
+      _descriptionController.text = widget.taskToEdit!.description;
+      _selectedPriority = widget.taskToEdit!.priority;
+      _isCompleted = widget.taskToEdit!.isCompleted;
+    }
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _submitForm() {
+    if (_formKey.currentState!.validate()) {
+      final TaskItem resultTask;
+      
+      if (_isEditMode && widget.taskToEdit != null) {
+        // Update existing task (keep the same ID)
+        resultTask = TaskItem(
+          id: widget.taskToEdit!.id,
+          title: _titleController.text.trim(),
+          priority: _selectedPriority,
+          description: _descriptionController.text.trim(),
+          isCompleted: _isCompleted,
+        );
+      } else {
+        // Create new task with generated ID
+        resultTask = TaskItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: _titleController.text.trim(),
+          priority: _selectedPriority,
+          description: _descriptionController.text.trim(),
+          isCompleted: _isCompleted,
+        );
+      }
+
+      // Return the task to the previous screen
+      Navigator.pop(context, resultTask);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_isEditMode ? 'Edit Task' : 'Add New Task'),
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Title field
+                Text(
+                  'Task Title',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                TextFormField(
+                  controller: _titleController,
+                  decoration: InputDecoration(
+                    hintText: 'Enter task title',
+                    prefixIcon: Icon(Icons.title),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter a task title';
+                    }
+                    if (value.trim().length < 3) {
+                      return 'Title must be at least 3 characters';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 20),
+
+                // Priority field
+                Text(
+                  'Priority',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: _selectedPriority,
+                  decoration: InputDecoration(
+                    prefixIcon: Icon(Icons.flag),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  ),
+                  items: _priorityOptions.map((String priority) {
+                    return DropdownMenuItem<String>(
+                      value: priority,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: _getPriorityColor(priority),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text(priority),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPriority = value!;
+                    });
+                  },
+                ),
+                SizedBox(height: 20),
+
+                // Description field
+                Text(
+                  'Description',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                SizedBox(height: 8),
+                TextFormField(
+                  controller: _descriptionController,
+                  maxLines: 5,
+                  decoration: InputDecoration(
+                    hintText: 'Enter task description',
+                    prefixIcon: Padding(
+                      padding: EdgeInsets.only(bottom: 70),
+                      child: Icon(Icons.description),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    filled: true,
+                    fillColor: isDark ? Colors.grey[800] : Colors.grey[100],
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter a task description';
+                    }
+                    if (value.trim().length < 5) {
+                      return 'Description must be at least 5 characters';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 20),
+
+                // Completed checkbox
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: CheckboxListTile(
+                    title: Text(
+                      'Mark as Completed',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text('Check if this task is already done'),
+                    value: _isCompleted,
+                    onChanged: (value) {
+                      setState(() {
+                        _isCompleted = value ?? false;
+                      });
+                    },
+                    secondary: Icon(
+                      _isCompleted ? Icons.check_circle : Icons.circle_outlined,
+                      color: _isCompleted ? Colors.green : Colors.grey,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 30),
+
+                // Submit button
+                ElevatedButton(
+                  onPressed: _submitForm,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 3,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(_isEditMode ? Icons.save : Icons.add_task),
+                      SizedBox(width: 8),
+                      Text(
+                        _isEditMode ? 'Save Changes' : 'Add Task',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 16),
+
+                // Cancel button
+                OutlinedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    side: BorderSide(color: theme.colorScheme.primary),
+                  ),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _getPriorityColor(String priority) {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return Colors.red;
+      case 'medium':
+        return Colors.orange;
+      case 'low':
+        return Colors.blue;
+      default:
+        return Colors.grey;
+    }
+  }
+}

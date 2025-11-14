@@ -1,59 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-// import 'models/task_item.dart'; // Import your TaskItem model
-
-// TaskItem model (normally in separate file - models/task_item.dart)
-class TaskItem {
-  final String id;
-  final String title;
-  final String priority;
-  final String description;
-  final bool isCompleted;
-
-  TaskItem({
-    required this.id,
-    required this.title,
-    required this.priority,
-    required this.description,
-    this.isCompleted = false,
-  });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'priority': priority,
-      'description': description,
-      'isCompleted': isCompleted ? 1 : 0, // SQLite uses 0 and 1 for boolean
-    };
-  }
-
-  factory TaskItem.fromJson(Map<String, dynamic> json) {
-    return TaskItem(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      priority: json['priority'] as String,
-      description: json['description'] as String,
-      isCompleted: json['isCompleted'] == 1, // Convert 1 to true, 0 to false
-    );
-  }
-
-  TaskItem copyWith({
-    String? id,
-    String? title,
-    String? priority,
-    String? description,
-    bool? isCompleted,
-  }) {
-    return TaskItem(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      priority: priority ?? this.priority,
-      description: description ?? this.description,
-      isCompleted: isCompleted ?? this.isCompleted,
-    );
-  }
-}
+import 'models/task_item.dart'; // Import your TaskItem model
 
 class DatabaseHelper {
   // Singleton pattern
@@ -85,11 +32,7 @@ class DatabaseHelper {
   // Initialize the database
   Future<Database> _initDatabase() async {
     try {
-      // Get the database path
       String path = join(await getDatabasesPath(), _databaseName);
-      
-      print('Database path: $path');
-
       // Open/create the database
       return await openDatabase(
         path,
@@ -124,17 +67,17 @@ class DatabaseHelper {
 
   // Handle database upgrades (for future versions)
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database schema upgrades here when needed
     print('Upgrading database from version $oldVersion to $newVersion');
   }
 
-  // Insert a new TaskItem
+  // Insert a new TaskItem (ensures isCompleted is int)
   Future<int> insertTaskItem(TaskItem task) async {
     try {
       final db = await database;
+      final map = task.toJson(); // toJson already converts isCompleted -> int
       int result = await db.insert(
         tableTaskItems,
-        task.toJson(),
+        map,
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
       print('Task inserted successfully: ${task.title}');
@@ -154,8 +97,6 @@ class DatabaseHelper {
         orderBy: '$columnIsCompleted ASC, $columnId DESC',
       );
 
-      print('Retrieved ${maps.length} tasks from database');
-
       // Convert the List<Map<String, dynamic>> into a List<TaskItem>
       return List.generate(maps.length, (i) {
         return TaskItem.fromJson(maps[i]);
@@ -170,9 +111,10 @@ class DatabaseHelper {
   Future<int> updateTaskItem(TaskItem task) async {
     try {
       final db = await database;
+      final map = task.toJson(); // toJson converts isCompleted -> int
       int result = await db.update(
         tableTaskItems,
-        task.toJson(),
+        map,
         where: '$columnId = ?',
         whereArgs: [task.id],
       );
@@ -256,9 +198,10 @@ class DatabaseHelper {
     }
   }
 
-  // Close the database
+  // Close the database and reset instance
   Future<void> close() async {
     final db = await database;
     await db.close();
+    _database = null;
   }
 }

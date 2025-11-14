@@ -1,62 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-// Import these in your project:
-import 'models/task_item.dart';
 import 'database_helper.dart';
-
-// TaskItem model class (normally in separate file)
-class TaskItem {
-  final String id;
-  final String title;
-  final String priority;
-  final String description;
-  final bool isCompleted;
-
-  TaskItem({
-    required this.id,
-    required this.title,
-    required this.priority,
-    required this.description,
-    this.isCompleted = false,
-  });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'priority': priority,
-      'description': description,
-      'isCompleted': isCompleted ? 1 : 0,
-    };
-  }
-
-  factory TaskItem.fromJson(Map<String, dynamic> json) {
-    return TaskItem(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      priority: json['priority'] as String,
-      description: json['description'] as String,
-      isCompleted: json['isCompleted'] == 1,
-    );
-  }
-
-  TaskItem copyWith({
-    String? id,
-    String? title,
-    String? priority,
-    String? description,
-    bool? isCompleted,
-  }) {
-    return TaskItem(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      priority: priority ?? this.priority,
-      description: description ?? this.description,
-      isCompleted: isCompleted ?? this.isCompleted,
-    );
-  }
-}
+import 'models/task_item.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -160,7 +105,34 @@ class TasksNotesScreen extends StatefulWidget {
 }
 
 class _TasksNotesScreenState extends State<TasksNotesScreen> {
+  final DatabaseHelper _dbHelper = DatabaseHelper();
   List<TaskItem> tasks = [];
+  bool _isLoadingTasks = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTasksFromDatabase();
+  }
+
+  Future<void> _loadTasksFromDatabase() async {
+    setState(() {
+      _isLoadingTasks = true;
+    });
+    try {
+      final fetchedTasks = await _dbHelper.getAllTaskItems();
+      setState(() {
+        tasks = fetchedTasks;
+      });
+    } catch (e) {
+      print('Error loading tasks: $e');
+      // optionally show error UI/snackbar
+    } finally {
+      setState(() {
+        _isLoadingTasks = false;
+      });
+    }
+  }
 
   void _addNewTask(TaskItem newTask) {
     setState(() {
@@ -168,7 +140,7 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
     });
   }
 
-  void _updateTask(TaskItem updatedTask) {
+  void _updateTaskInState(TaskItem updatedTask) {
     setState(() {
       final index = tasks.indexWhere((task) => task.id == updatedTask.id);
       if (index != -1) {
@@ -177,7 +149,7 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
     });
   }
 
-  void _deleteTask(String taskId) {
+  void _deleteTaskInState(String taskId) {
     setState(() {
       tasks.removeWhere((task) => task.id == taskId);
     });
@@ -244,17 +216,22 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
                 'Delete',
                 style: TextStyle(color: Colors.red),
               ),
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(context);
-                _deleteTask(task.id);
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Task "${task.title}" deleted'),
-                    backgroundColor: Colors.red,
-                    duration: Duration(seconds: 2),
-                  ),
-                );
+                try {
+                  await _dbHelper.deleteTaskItem(task.id);
+                  _deleteTaskInState(task.id);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Task "${task.title}" deleted'),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } catch (e) {
+                  print('Error deleting task: $e');
+                }
               },
             ),
           ],
@@ -264,16 +241,17 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
   }
 
   void _navigateToAddTaskForm() async {
-    final result = await Navigator.push(
+    final result = await Navigator.push<TaskItem?>(
       context,
       MaterialPageRoute(
         builder: (context) => AddTaskFormScreen(),
       ),
     );
 
-    if (result != null && result is TaskItem) {
+    if (result != null) {
+      // Task was inserted by the AddTaskFormScreen into DB and returned
       _addNewTask(result);
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Task "${result.title}" added successfully!'),
@@ -285,16 +263,17 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
   }
 
   void _navigateToEditTaskForm(TaskItem task) async {
-    final result = await Navigator.push(
+    final result = await Navigator.push<TaskItem?>(
       context,
       MaterialPageRoute(
         builder: (context) => AddTaskFormScreen(taskToEdit: task),
       ),
     );
 
-    if (result != null && result is TaskItem) {
-      _updateTask(result);
-      
+    if (result != null) {
+      // Task was updated in DB and returned
+      _updateTaskInState(result);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Task "${result.title}" updated successfully!'),
@@ -397,102 +376,103 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
 
           // ListView section
           Expanded(
-            child: tasks.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.task_alt,
-                          size: 80,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          'No tasks yet',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Tap + to add a new task',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: tasks.length,
-                    itemBuilder: (context, index) {
-                      final task = tasks[index];
-                      return Card(
-                        elevation: 2,
-                        margin: EdgeInsets.only(bottom: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ListTile(
-                          contentPadding: EdgeInsets.all(16),
-                          onTap: () => _showTaskOptionsDialog(task),
-                          leading: CircleAvatar(
-                            backgroundColor: task.isCompleted
-                                ? Colors.green
-                                : _getPriorityColor(task.priority),
-                            child: Icon(
-                              task.isCompleted ? Icons.check : Icons.note,
-                              color: Colors.white,
+            child: _isLoadingTasks
+                ? Center(child: CircularProgressIndicator())
+                : tasks.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.task_alt,
+                              size: 80,
+                              color: Colors.grey,
                             ),
-                          ),
-                          title: Text(
-                            task.title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              decoration: task.isCompleted
-                                  ? TextDecoration.lineThrough
-                                  : TextDecoration.none,
+                            SizedBox(height: 16),
+                            Text(
+                              'No tasks yet',
+                              style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.grey,
+                              ),
                             ),
-                          ),
-                          subtitle: Padding(
-                            padding: EdgeInsets.only(top: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  task.description,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color:
-                                        isDark ? Colors.grey[400] : Colors.grey[600],
-                                  ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Tap + to add a new task',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: tasks.length,
+                        itemBuilder: (context, index) {
+                          final task = tasks[index];
+                          return Card(
+                            elevation: 2,
+                            margin: EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: ListTile(
+                              contentPadding: EdgeInsets.all(16),
+                              onTap: () => _showTaskOptionsDialog(task),
+                              leading: CircleAvatar(
+                                backgroundColor: task.isCompleted
+                                    ? Colors.green
+                                    : _getPriorityColor(task.priority),
+                                child: Icon(
+                                  task.isCompleted ? Icons.check : Icons.note,
+                                  color: Colors.white,
                                 ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Priority: ${task.priority}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                    color: _getPriorityColor(task.priority),
-                                  ),
+                              ),
+                              title: Text(
+                                task.title,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: task.isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
                                 ),
-                              ],
+                              ),
+                              subtitle: Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      task.description,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: isDark ? Colors.grey[400] : Colors.grey[600],
+                                      ),
+                                    ),
+                                    SizedBox(height: 4),
+                                    Text(
+                                      'Priority: ${task.priority}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: _getPriorityColor(task.priority),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              trailing: Icon(
+                                Icons.arrow_forward_ios,
+                                size: 16,
+                                color: isDark ? Colors.grey[600] : Colors.grey[400],
+                              ),
                             ),
-                          ),
-                          trailing: Icon(
-                            Icons.arrow_forward_ios,
-                            size: 16,
-                            color: isDark ? Colors.grey[600] : Colors.grey[400],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
@@ -518,7 +498,6 @@ class _TasksNotesScreenState extends State<TasksNotesScreen> {
   }
 }
 
-// Add Task Form Screen
 class AddTaskFormScreen extends StatefulWidget {
   final TaskItem? taskToEdit;
 
@@ -529,6 +508,7 @@ class AddTaskFormScreen extends StatefulWidget {
 }
 
 class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
+  final DatabaseHelper _dbHelper = DatabaseHelper();
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
@@ -541,7 +521,7 @@ class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     // Check if we're editing an existing task
     if (widget.taskToEdit != null) {
       _isEditMode = true;
@@ -559,10 +539,10 @@ class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
     super.dispose();
   }
 
-  void _submitForm() {
+  Future<void> _submitForm() async {
     if (_formKey.currentState!.validate()) {
       final TaskItem resultTask;
-      
+
       if (_isEditMode && widget.taskToEdit != null) {
         // Update existing task (keep the same ID)
         resultTask = TaskItem(
@@ -572,6 +552,13 @@ class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
           description: _descriptionController.text.trim(),
           isCompleted: _isCompleted,
         );
+
+        // update DB
+        try {
+          await _dbHelper.updateTaskItem(resultTask);
+        } catch (e) {
+          print('Error updating task in DB: $e');
+        }
       } else {
         // Create new task with generated ID
         resultTask = TaskItem(
@@ -581,9 +568,16 @@ class _AddTaskFormScreenState extends State<AddTaskFormScreen> {
           description: _descriptionController.text.trim(),
           isCompleted: _isCompleted,
         );
+
+        // insert into DB
+        try {
+          await _dbHelper.insertTaskItem(resultTask);
+        } catch (e) {
+          print('Error inserting task into DB: $e');
+        }
       }
 
-      // Return the task to the previous screen
+      // Return the task to the previous screen (parent will refresh state)
       Navigator.pop(context, resultTask);
     }
   }
